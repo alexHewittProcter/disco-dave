@@ -11,9 +11,21 @@ const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
 
 const app = express();
 
+const ALBUM_ARTIST = "ALBUM_ARTIST";
+const ALBUM_TRACKS = "ALBUM_TRACKS";
+
+const queryCache = { [ALBUM_ARTIST]: {}, [ALBUM_TRACKS]: {} };
+
+function saveToCache(cacheKey, key, value) {
+  queryCache[cacheKey] = { ...queryCache[cacheKey], [key]: value };
+}
+
+function getFromCache(cacheKey, key) {
+  return queryCache[cacheKey][key];
+}
+
 let accessToken = "";
 
-// Step 1: Authenticate and get access token
 app.get("/login", (req, res) => {
   const scopes =
     "playlist-read-private playlist-modify-private playlist-modify-public";
@@ -51,7 +63,6 @@ app.get("/callback", (req, res) => {
     });
 });
 
-// Step 2: Get user profile
 const getUserProfile = async () => {
   const response = await axios.get("https://api.spotify.com/v1/me", {
     headers: {
@@ -61,7 +72,6 @@ const getUserProfile = async () => {
   return response.data;
 };
 
-// Step 3: Get playlist tracks
 const getPlaylistTracks = async (playlistId) => {
   const response = await axios.get(
     `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
@@ -74,9 +84,11 @@ const getPlaylistTracks = async (playlistId) => {
   return response.data.items;
 };
 
-// Step 4: Get artist's albums
 const getArtistAlbums = async (artistId) => {
-  console.log("Called getArtistAlbums");
+  if (getFromCache(ALBUM_ARTIST, artistId)) {
+    console.log("Returning from ALBUM_ARTIST cache");
+    return getFromCache(ALBUM_ARTIST, artistId);
+  }
   const response = await axios.get(
     `https://api.spotify.com/v1/artists/${artistId}/albums`,
     {
@@ -85,10 +97,27 @@ const getArtistAlbums = async (artistId) => {
       },
     }
   );
+  saveToCache(ALBUM_ARTIST, artistId, response.data.items);
   return response.data.items;
 };
 
-// Step 5: Create new playlist
+const getAlbumTracks = async (albumId) => {
+  if (getFromCache(ALBUM_TRACKS, albumId)) {
+    console.log("Returning from ALBUM_TRACKS cache");
+    return getFromCache(ALBUM_TRACKS, albumId);
+  }
+  const response = await axios.get(
+    `https://api.spotify.com/v1/albums/${albumId}/tracks`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+  saveToCache(ALBUM_TRACKS, albumId, response.data.items);
+  return response.data.items;
+};
+
 const createPlaylist = async (userId, name) => {
   const response = await axios.post(
     `https://api.spotify.com/v1/users/${userId}/playlists`,
@@ -105,7 +134,6 @@ const createPlaylist = async (userId, name) => {
   return response.data;
 };
 
-// Step 6: Add tracks to the new playlist
 const addTracksToPlaylist = async (playlistId, trackUris) => {
   try {
     await axios.post(
@@ -125,7 +153,6 @@ const addTracksToPlaylist = async (playlistId, trackUris) => {
   }
 };
 
-// Step 7: Get playlist name by ID
 const getPlaylistName = async (playlistId) => {
   const response = await axios.get(
     `https://api.spotify.com/v1/playlists/${playlistId}`,
@@ -181,32 +208,30 @@ const main = async (playlistId) => {
 
   let count = 1;
   for (let artistId of artists) {
-    console.log(`Processing artist: ${count++}/${artists.size}`);
-    const artistName =
-      playlistTracks.find((t) => t.track.artists.find((a) => a.id === artistId))
-        .track.name || `Can't find artist name`;
+    try {
+      const artistName =
+        playlistTracks.find((t) =>
+          t.track.artists.find((a) => a.id === artistId)
+        ).track.artists[0].name || `Can't find artist name`;
+      console.log(
+        `Processing artist: ${artistName} ${count++}/${artists.size}`
+      );
 
-    console.log("Processing artist:", artistName);
-    const artistAlbums = await getArtistAlbums(artistId);
-    await new Promise((r) => setTimeout(r, 1000));
-
-    // let count = 1;
-    for (let album of artistAlbums) {
-      console.log("Processing album:", album.name);
+      const artistAlbums = await getArtistAlbums(artistId);
       await new Promise((r) => setTimeout(r, 1000));
-      try {
-        const albumTracks = await axios.get(
-          `https://api.spotify.com/v1/albums/${album.id}/tracks`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }
-        );
-        allTrackUris.push(...albumTracks.data.items.map((track) => track.uri));
-      } catch (error) {
-        console.log("Error processing album:", album);
+
+      for (let album of artistAlbums) {
+        // console.log("Processing album:", album.name);
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const albumTracks = await getAlbumTracks(album.id);
+          allTrackUris.push(...albumTracks.map((track) => track.uri));
+        } catch (error) {
+          console.log("Error processing album:", album);
+        }
       }
+    } catch (error) {
+      console.log("Error processing artist:", artistId);
     }
   }
 
