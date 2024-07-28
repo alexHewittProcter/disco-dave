@@ -89,6 +89,8 @@ const getArtistAlbums = async (artistId) => {
     console.log("Returning from ALBUM_ARTIST cache");
     return getFromCache(ALBUM_ARTIST, artistId);
   }
+  await new Promise((r) => setTimeout(r, 1000));
+
   const response = await axios.get(
     `https://api.spotify.com/v1/artists/${artistId}/albums`,
     {
@@ -106,6 +108,8 @@ const getAlbumTracks = async (albumId) => {
     console.log("Returning from ALBUM_TRACKS cache");
     return getFromCache(ALBUM_TRACKS, albumId);
   }
+  await new Promise((r) => setTimeout(r, 1000));
+
   const response = await axios.get(
     `https://api.spotify.com/v1/albums/${albumId}/tracks`,
     {
@@ -218,11 +222,9 @@ const main = async (playlistId) => {
       );
 
       const artistAlbums = await getArtistAlbums(artistId);
-      await new Promise((r) => setTimeout(r, 1000));
 
       for (let album of artistAlbums) {
         // console.log("Processing album:", album.name);
-        await new Promise((r) => setTimeout(r, 1000));
         try {
           const albumTracks = await getAlbumTracks(album.id);
           allTrackUris.push(...albumTracks.map((track) => track.uri));
@@ -231,6 +233,7 @@ const main = async (playlistId) => {
         }
       }
     } catch (error) {
+      console.log(error);
       console.log("Error processing artist:", artistId);
     }
   }
